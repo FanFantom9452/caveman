@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { readFlag, appendFlag, readHistory, safeWriteFlag, VALID_MODES, MODE_LOG_BASENAME } = require('./caveman-config');
+const { readFlag, appendFlag, readHistory, safeWriteFlag, VALID_MODES, MODE_LOG_BASENAME, flagPathFor, sessionIdFrom } = require('./caveman-config');
 
 // Mean per-task savings from benchmarks/results/*.json (avg_savings: 65 across
 // 10 tasks, sonnet-4-20250514). Only 'full' has measured data; lite / ultra /
@@ -528,7 +528,10 @@ function main() {
   }
 
   const parsed = parseSession(sessionFile);
-  const flagPath = path.join(claudeDir, '.caveman-active');
+  // The session log is named after its session, so the flag that belongs to it
+  // needs no extra argument threaded down here. Reporting on one session while
+  // reading another's mode is exactly what the shared flag file used to do.
+  const flagPath = flagPathFor(claudeDir, sessionIdFrom({ transcript_path: sessionFile }));
   const mode = readFlag(flagPath);
 
   // #601: attribute tokens to the mode active when each message happened,

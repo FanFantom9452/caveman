@@ -119,6 +119,18 @@ if [ -f "$FLAG_FILE" ]; then
   echo "  Removed: $FLAG_FILE"
 fi
 
+# 5. Remove the per-session flags. One directory per session under modes/, each
+# holding this plugin's flag and nothing else, so only those files are removed —
+# the directories are shared with whatever else keys its state by session, and
+# rmdir declines to take one that still has something in it.
+for d in "$CLAUDE_DIR"/modes/*/; do
+  [ -d "$d" ] || continue
+  rm -f "$d/caveman" "$d/caveman.prev"
+  rmdir "$d" 2>/dev/null
+done
+rmdir "$CLAUDE_DIR/modes" 2>/dev/null
+echo "  Removed: per-session flags under $CLAUDE_DIR/modes/"
+
 echo ""
 echo "Done! Restart Claude Code to complete the uninstall."
 

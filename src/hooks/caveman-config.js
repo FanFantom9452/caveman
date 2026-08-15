@@ -134,6 +134,81 @@ function getDefaultMode(startDir) {
 //
 // Set CAVEMAN_DEBUG=1 to emit stderr diagnostics when flag writes are refused.
 //
+// ---------------------------------------------------------------------------
+// Session scoping.
+//
+// The mode used to live in one file per machine, $CLAUDE_CONFIG_DIR/.caveman-active,
+// which meant a switch in one window followed the user into every other one, and a
+// new window reset all of them to the configured default. #691 fixed half of that
+// by only resetting on a real `startup`, but the file is still shared: two windows
+// cannot hold two different modes.
+//
+// Flags now live at $CLAUDE_CONFIG_DIR/modes/<session_id>/caveman. The bare name is
+// deliberate — a statusline that lists that directory gets the badge label for free,
+// and `caveman.prev` is excluded from such a listing by its dot.
+//
+// Everything falls back to the old paths when no session id is available (opencode,
+// a manual run, a harness that sends no payload), so those keep working unchanged.
+const MODES_DIR = 'modes';
+const SESSION_FILES = { mode: 'caveman', prev: 'caveman.prev' };
+const LEGACY_FILES = { mode: '.caveman-active', prev: '.caveman-active.prev' };
+
+// A session id becomes a path component, so it is validated rather than trusted for
+// having come from the harness.
+function validSessionId(id) {
+  return (typeof id === 'string' && /^[0-9a-fA-F][0-9a-fA-F-]{7,63}$/.test(id)) ? id : null;
+}
+
+// session_id is on every hook payload. transcript_path is named after the session,
+// so it stands in for any caller that has the one but not the other.
+function sessionIdFrom(data) {
+  if (!data) return null;
+  const direct = validSessionId(data.session_id);
+  if (direct) return direct;
+  if (typeof data.transcript_path === 'string' && data.transcript_path) {
+    return validSessionId(path.basename(data.transcript_path).replace(/\.jsonl$/i, ''));
+  }
+  return null;
+}
+
+function flagPathFor(claudeDir, sessionId, kind = 'mode') {
+  const sid = validSessionId(sessionId);
+  return sid
+    ? path.join(claudeDir, MODES_DIR, sid, SESSION_FILES[kind])
+    : path.join(claudeDir, LEGACY_FILES[kind]);
+}
+
+// Once a session owns its flag the global one is stale, and a statusline that finds
+// no session flag falls back to exactly that file — so leaving it behind keeps a
+// badge lit for a window that has since turned caveman off.
+function clearLegacyFlags(claudeDir) {
+  for (const name of Object.values(LEGACY_FILES)) {
+    try { fs.unlinkSync(path.join(claudeDir, name)); } catch (e) { /* best-effort */ }
+  }
+}
+
+// One directory per session accumulates forever otherwise. Swept on session start;
+// the live session is never a candidate, having just been written.
+function pruneSessions(claudeDir, currentSessionId, maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+  const root = path.join(claudeDir, MODES_DIR);
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (e) {
+    return;
+  }
+  const cutoff = Date.now() - maxAgeMs;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === currentSessionId) continue;
+    const dir = path.join(root, entry.name);
+    try {
+      if (fs.statSync(dir).mtimeMs >= cutoff) continue;
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (e) { /* best-effort */ }
+  }
+}
+// ---------------------------------------------------------------------------
+
 // Silent-fails on any filesystem error — the flag is best-effort.
 function safeWriteFlag(flagPath, content) {
   const debug = process.env.CAVEMAN_DEBUG === '1';
@@ -351,9 +426,12 @@ function appendFlag(filePath, line) {
 // of a session. No-op when the mode is unchanged; best-effort like all flag IO.
 const MODE_LOG_BASENAME = '.caveman-mode-log.jsonl';
 
-function recordModeChange(claudeDir, newMode) {
+function recordModeChange(claudeDir, newMode, sessionId) {
   try {
-    const current = readFlag(path.join(claudeDir, '.caveman-active'));
+    // Against this session's flag, not the global one: comparing to another
+    // window's mode would log transitions that never happened here and skip the
+    // ones that did.
+    const current = readFlag(flagPathFor(claudeDir, sessionId));
     const next = newMode || null;
     if ((current || null) === next) return;
     appendFlag(
@@ -388,4 +466,4 @@ function readHistory(filePath) {
   }
 }
 
-module.exports = { getDefaultMode, getConfigDir, getConfigPath, findRepoConfigPath, VALID_MODES, safeWriteFlag, readFlag, appendFlag, readHistory, recordModeChange, MODE_LOG_BASENAME };
+module.exports = { getDefaultMode, getConfigDir, getConfigPath, findRepoConfigPath, VALID_MODES, safeWriteFlag, readFlag, appendFlag, readHistory, recordModeChange, MODE_LOG_BASENAME, clearLegacyFlags, flagPathFor, pruneSessions, sessionIdFrom, validSessionId };

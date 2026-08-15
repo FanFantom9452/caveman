@@ -6,14 +6,21 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
-const { getDefaultMode, safeWriteFlag, readFlag, recordModeChange } = require('./caveman-config');
+const {
+  getDefaultMode, safeWriteFlag, readFlag, recordModeChange,
+  flagPathFor, sessionIdFrom,
+} = require('./caveman-config');
 const { parseModeChange, INDEPENDENT_MODES } = require('./caveman-parse');
 
 const claudeDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
-const flagPath = path.join(claudeDir, '.caveman-active');
+// Both paths depend on the session id, which only arrives with the payload, so
+// they start on the legacy global names and are re-resolved once it is parsed.
+// A payload without an id leaves them there, which is the old behaviour.
+let sessionId = null;
+let flagPath = flagPathFor(claudeDir, null);
 // Remembers the prose mode active before a one-shot independent mode
 // (/caveman-commit etc.) so the next ordinary prompt can restore it (#599).
-const prevPath = path.join(claudeDir, '.caveman-active.prev');
+let prevPath = flagPathFor(claudeDir, null, 'prev');
 
 function removeFlag(path) {
   try {
@@ -34,6 +41,12 @@ process.stdin.on('error', () => process.exit(0));
 process.stdin.on('end', () => {
   try {
     const data = JSON.parse(input);
+    // Scope every flag read and write below to this session. Before any of them:
+    // otherwise a mode switch typed in one window would follow the user into all
+    // the others, which is what the shared flag file used to do.
+    sessionId = sessionIdFrom(data);
+    flagPath = flagPathFor(claudeDir, sessionId);
+    prevPath = flagPathFor(claudeDir, sessionId, 'prev');
     // Collapse whitespace so phrase triggers still match multiline prompts —
     // every regex below sees a single-line prompt (#598).
     let prompt = (data.prompt || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -126,10 +139,10 @@ process.stdin.on('end', () => {
         }
         setIndependentThisTurn = true;
       }
-      recordModeChange(claudeDir, mode); // #601: timestamped transition log
+      recordModeChange(claudeDir, mode, sessionId); // #601: timestamped transition log
       safeWriteFlag(flagPath, mode);
     } else if (change && change.action === 'clear') {
-      recordModeChange(claudeDir, null); // #601
+      recordModeChange(claudeDir, null, sessionId); // #601
       removeFlag(flagPath);
       removeFlag(prevPath);
     }
@@ -154,11 +167,11 @@ process.stdin.on('end', () => {
       const prev = readFlag(prevPath);
       removeFlag(prevPath);
       if (prev && !INDEPENDENT_MODES.has(prev)) {
-        recordModeChange(claudeDir, prev); // #601
+        recordModeChange(claudeDir, prev, sessionId); // #601
         safeWriteFlag(flagPath, prev);
         activeMode = prev;
       } else {
-        recordModeChange(claudeDir, null); // #601
+        recordModeChange(claudeDir, null, sessionId); // #601
         removeFlag(flagPath);
         activeMode = null;
       }

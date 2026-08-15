@@ -8,7 +8,18 @@
 # Plugin users: Claude will offer to set this up on first session.
 # Standalone users: install.sh wires this automatically.
 
-FLAG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.caveman-active"
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+# The mode is scoped to one session, so this has to know which session it is
+# rendering for — otherwise every window shows whichever one switched mode last.
+# Claude Code hands the statusline payload on stdin; session_id comes out with a
+# regex rather than a JSON parser, keeping this script dependency-free.
+SID=$(cat 2>/dev/null | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]\{8,64\}\)".*/\1/p' | head -n1)
+
+# The global flag is the fallback, not the default: it is what an install that has
+# not yet run a session-scoped hook still has, and it is removed as soon as one does.
+FLAG="$CFG/.caveman-active"
+[ -n "$SID" ] && [ -f "$CFG/modes/$SID/caveman" ] && FLAG="$CFG/modes/$SID/caveman"
 
 # Refuse symlinks — a local attacker could point the flag at ~/.ssh/id_rsa and
 # have the statusline render its bytes (including ANSI escape sequences) to

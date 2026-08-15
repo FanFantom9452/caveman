@@ -1335,6 +1335,30 @@ function uninstall(ctx) {
       note(`  removed ${statePath}`);
     }
   }
+  // The same state, one directory per session, since the flag became session-scoped.
+  // Only this plugin's files are removed: a session directory is shared with
+  // anything else that keys its state the same way, and rmdir declines to take one
+  // that still holds something.
+  const modesDir = path.join(configDir, 'modes');
+  let sessionDirs = [];
+  try { sessionDirs = fs.readdirSync(modesDir, { withFileTypes: true }); } catch (_) {}
+  for (const entry of sessionDirs) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(modesDir, entry.name);
+    for (const file of ['caveman', 'caveman.prev']) {
+      const statePath = path.join(dir, file);
+      if (!fs.existsSync(statePath)) continue;
+      if (opts.dryRun) {
+        note(`  would remove ${statePath}`);
+      } else {
+        try { fs.unlinkSync(statePath); } catch (_) {}
+        note(`  removed ${statePath}`);
+      }
+    }
+    if (!opts.dryRun) { try { fs.rmdirSync(dir); } catch (_) {} }
+  }
+  if (!opts.dryRun) { try { fs.rmdirSync(modesDir); } catch (_) {} }
+
   const historyPath = path.join(configDir, '.caveman-history.jsonl');
   if (fs.existsSync(historyPath)) {
     note(`  kept ${historyPath} (lifetime history — delete manually if unwanted)`);

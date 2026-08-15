@@ -1,6 +1,20 @@
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ClaudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
+
+# The mode is scoped to one session, so this has to know which session it is
+# rendering for — otherwise every window shows whichever one switched mode last.
+# Claude Code hands the statusline payload on stdin; session_id comes out with a
+# regex rather than ConvertFrom-Json, which keeps this a short addition.
+$Payload = ""
+try { $Payload = [Console]::In.ReadToEnd() } catch { }
+
+# The global flag is the fallback, not the default: it is what an install that has
+# not yet run a session-scoped hook still has, and it is removed as soon as one does.
 $Flag = Join-Path $ClaudeDir ".caveman-active"
+if ($Payload -match '"session_id"\s*:\s*"([0-9a-fA-F-]{8,64})"') {
+    $Scoped = Join-Path (Join-Path (Join-Path $ClaudeDir "modes") $Matches[1]) "caveman"
+    if (Test-Path $Scoped) { $Flag = $Scoped }
+}
 if (-not (Test-Path $Flag)) { exit 0 }
 
 # Refuse reparse points (symlinks / junctions) and oversized files. Without

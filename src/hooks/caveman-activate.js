@@ -9,10 +9,12 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getDefaultMode, safeWriteFlag, recordModeChange, readFlag, VALID_MODES } = require('./caveman-config');
+const {
+  getDefaultMode, safeWriteFlag, recordModeChange, readFlag, VALID_MODES,
+  clearLegacyFlags, flagPathFor, pruneSessions, sessionIdFrom,
+} = require('./caveman-config');
 
 const claudeDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
-const flagPath = path.join(claudeDir, '.caveman-active');
 const settingsPath = path.join(claudeDir, 'settings.json');
 
 function removeFlag(path) {
@@ -41,33 +43,49 @@ try {
 // closes the pipe — it always does. A parent that held the pipe open forever
 // would block here; no such caller exists, and a TTY (manual run) skips it.
 let source = 'startup';
+// The same payload carries the session id the flag is scoped by, so reading it
+// here costs nothing extra. Without one — a manual run, or a harness that sends
+// no payload — flagPathFor returns the old global path and nothing changes.
+let sessionId = null;
 try {
   if (!process.stdin.isTTY) {
     const raw = fs.readFileSync(0, 'utf8');
     if (raw) {
       const data = JSON.parse(raw);
       if (data && typeof data.source === 'string') source = data.source;
+      sessionId = sessionIdFrom(data);
     }
   }
 } catch (e) { /* no/bad stdin → treat as startup */ }
 
+const flagPath = flagPathFor(claudeDir, sessionId);
+
+// #691 becomes narrower with the flag scoped: `existing` is now this session's own
+// mode, so resume/clear/compact restore what this window was set to rather than
+// whatever another window happened to leave in the shared file.
 let mode = getDefaultMode();
 if (source !== 'startup') {
   const existing = readFlag(flagPath);
   if (existing && VALID_MODES.includes(existing)) mode = existing;
 }
 
+// Sweep stale session directories on the way past, whatever the mode turns out
+// to be — the "off" branch below exits the process outright.
+pruneSessions(claudeDir, sessionId);
+
 // "off" mode — skip activation entirely, don't write flag or emit rules
 if (mode === 'off') {
-  recordModeChange(claudeDir, null); // #601: timestamped transition log
+  recordModeChange(claudeDir, null, sessionId); // #601: timestamped transition log
   removeFlag(flagPath);
+  if (sessionId) clearLegacyFlags(claudeDir);
   process.stdout.write('OK');
   process.exit(0);
 }
 
 // 1. Write flag file (symlink-safe)
-recordModeChange(claudeDir, mode); // #601
+recordModeChange(claudeDir, mode, sessionId); // #601
 safeWriteFlag(flagPath, mode);
+if (sessionId) clearLegacyFlags(claudeDir);
 
 // 2. Emit full caveman ruleset, filtered to the active intensity level.
 //    The old 2-sentence summary was too weak — models drifted back to verbose
