@@ -168,12 +168,16 @@ function summarizeCompressed(pairs) {
 // stats joins those timestamps against the session JSONL message timestamps.
 
 // Read + validate the transition log. Returns rows sorted by ts.
-function readModeLog(logPath) {
+function readModeLog(logPath, sessionId) {
   const rows = [];
   for (const line of readHistory(logPath)) {
     let e;
     try { e = JSON.parse(line); } catch { continue; }
     if (!e || typeof e !== 'object' || !Number.isFinite(e.ts)) continue;
+    // One flat timeline, many sessions. A row naming a session belongs only to
+    // that one; a row naming none predates session scoping, when the mode really
+    // was machine-wide, so it still applies here.
+    if (e.session != null && e.session !== sessionId) continue;
     const norm = (v) => (v == null ? null : (VALID_MODES.includes(String(v)) ? String(v) : undefined));
     const mode = norm(e.mode);
     const prev = norm(e.prev);
@@ -528,10 +532,12 @@ function main() {
   }
 
   const parsed = parseSession(sessionFile);
-  // The session log is named after its session, so the flag that belongs to it
-  // needs no extra argument threaded down here. Reporting on one session while
-  // reading another's mode is exactly what the shared flag file used to do.
-  const flagPath = flagPathFor(claudeDir, sessionIdFrom({ transcript_path: sessionFile }));
+  // The session log is named after its session, so both the flag that belongs to
+  // it and its slice of the transition timeline follow from the filename — no
+  // extra argument threaded down here. Reporting on one session while reading
+  // another's mode is exactly what the shared flag file used to do.
+  const reportSessionId = sessionIdFrom({ transcript_path: sessionFile });
+  const flagPath = flagPathFor(claudeDir, reportSessionId);
   const mode = readFlag(flagPath);
 
   // #601: attribute tokens to the mode active when each message happened,
@@ -539,7 +545,7 @@ function main() {
   // attributeByMode). Never credit the whole session to the current flag.
   let flagMtimeMs = null;
   try { flagMtimeMs = fs.statSync(flagPath).mtimeMs; } catch (e) {}
-  const modeLog = readModeLog(path.join(claudeDir, MODE_LOG_BASENAME));
+  const modeLog = readModeLog(path.join(claudeDir, MODE_LOG_BASENAME), reportSessionId);
   const attribution = attributeByMode({
     messages: parsed.messages,
     modeLog,

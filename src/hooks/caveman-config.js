@@ -434,9 +434,14 @@ function recordModeChange(claudeDir, newMode, sessionId) {
     const current = readFlag(flagPathFor(claudeDir, sessionId));
     const next = newMode || null;
     if ((current || null) === next) return;
+    // Stamped with the session, because the log is one flat timeline shared by
+    // every window while the mode it records is not. Without this, stats walking
+    // the timeline for one session would attribute another window's switches to
+    // its messages. Rows written before scoping carry no session and are read as
+    // applying to whatever was running at the time.
     appendFlag(
       path.join(claudeDir, MODE_LOG_BASENAME),
-      JSON.stringify({ ts: Date.now(), mode: next, prev: current || null })
+      JSON.stringify({ ts: Date.now(), mode: next, prev: current || null, session: validSessionId(sessionId) })
     );
   } catch (e) {
     // Silent fail — the log is best-effort

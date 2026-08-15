@@ -5,8 +5,12 @@ $ClaudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-
 # rendering for — otherwise every window shows whichever one switched mode last.
 # Claude Code hands the statusline payload on stdin; session_id comes out with a
 # regex rather than ConvertFrom-Json, which keeps this a short addition.
+# Only when stdin is a pipe. Reading an interactive terminal would block forever,
+# which is how someone running this by hand to check it works would find out.
 $Payload = ""
-try { $Payload = [Console]::In.ReadToEnd() } catch { }
+if ([Console]::IsInputRedirected) {
+    try { $Payload = [Console]::In.ReadToEnd() } catch { }
+}
 
 # The global flag is the fallback, not the default: it is what an install that has
 # not yet run a session-scoped hook still has, and it is removed as soon as one does.

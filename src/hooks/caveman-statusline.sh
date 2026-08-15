@@ -14,7 +14,12 @@ CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 # rendering for — otherwise every window shows whichever one switched mode last.
 # Claude Code hands the statusline payload on stdin; session_id comes out with a
 # regex rather than a JSON parser, keeping this script dependency-free.
-SID=$(cat 2>/dev/null | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]\{8,64\}\)".*/\1/p' | head -n1)
+# Only when stdin is a pipe. Reading an interactive terminal would block forever,
+# which is how someone running this by hand to check it works would find out.
+SID=""
+if [ ! -t 0 ]; then
+  SID=$(cat 2>/dev/null | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]\{8,64\}\)".*/\1/p' | head -n1)
+fi
 
 # The global flag is the fallback, not the default: it is what an install that has
 # not yet run a session-scoped hook still has, and it is removed as soon as one does.

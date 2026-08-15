@@ -150,6 +150,23 @@ test('a stale global flag is cleared once a session owns one', () => {
   assert.equal(fs.existsSync(legacy(dir, '.caveman-active.prev')), false);
 });
 
+// The transition log is one flat timeline shared by every window, but the mode it
+// records no longer is. Rows have to name their session or stats, walking the
+// timeline for one, would attribute another window's switches to its messages.
+test('transition-log rows name the session that wrote them', () => {
+  const dir = makeDir();
+  run('caveman-activate.js', { session_id: SID_A, source: 'startup' }, dir, { CAVEMAN_DEFAULT_MODE: 'ultra' });
+  run('caveman-activate.js', { session_id: SID_B, source: 'startup' }, dir, { CAVEMAN_DEFAULT_MODE: 'lite' });
+  run('caveman-mode-tracker.js', { session_id: SID_B, prompt: '/caveman off' }, dir);
+
+  const rows = fs.readFileSync(path.join(dir, '.caveman-mode-log.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map(l => JSON.parse(l));
+  assert.ok(rows.length >= 3, 'each transition is logged');
+  assert.ok(rows.every(r => typeof r.session === 'string'), 'every row carries its session');
+  assert.deepEqual(rows.filter(r => r.session === SID_A).map(r => r.mode), ['ultra']);
+  assert.deepEqual(rows.filter(r => r.session === SID_B).map(r => r.mode), ['lite', null]);
+});
+
 test('session directories older than a week are swept, the live one is not', () => {
   const dir = makeDir();
   run('caveman-activate.js', { session_id: SID_B, source: 'startup' }, dir);
