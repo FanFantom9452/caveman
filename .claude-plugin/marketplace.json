@@ -1,10 +1,10 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "caveman",
-  "description": "Ultra-compressed communication mode for Claude Code. Cuts 65% of output tokens (measured) while keeping full technical accuracy.",
+  "name": "caveman-per-session",
+  "description": "Ultra-compressed communication mode for Claude Code. Fork of JuliusBrussee/caveman with the mode flag keyed by session instead of shared by the whole machine.",
   "owner": {
-    "name": "Julius Brussee",
-    "url": "https://github.com/JuliusBrussee"
+    "name": "FanFantom9452",
+    "url": "https://github.com/FanFantom9452"
   },
   "plugins": [
     {
